@@ -1,3 +1,9 @@
 # Gitignore file to avoid tracking files unnecessarily
 
 __pycache__/
+
+# This is where I am tracking the speed of the program
+
+speedups.xlsx
+
+fiveruns.sh
