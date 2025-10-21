@@ -1,0 +1,3 @@
+# Gitignore file to avoid tracking files unnecessarily
+
+__pycache__/
