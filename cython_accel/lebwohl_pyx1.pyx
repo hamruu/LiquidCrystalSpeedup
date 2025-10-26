@@ -23,12 +23,19 @@ SH 16-Oct-23
 """
 
 import sys
-from numba import jit, prange
 import time
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+import cython
+cimport numpy as np
+from libc.math cimport cos
+from libc.math cimport sin
+from libc.math cimport exp
+np.import_array()
+
+
 #=======================================================================
 def initdat(nmax):
     """
@@ -128,8 +135,7 @@ def savedat(arr,nsteps,Ts,runtime,ratio,energy,order,nmax):
         print("   {:05d}    {:6.4f} {:12.4f}  {:6.4f} ".format(i,ratio[i],energy[i],order[i]),file=FileOut)
     FileOut.close()
 #=======================================================================
-@jit(nopython=True)
-def one_energy(arr,ix,iy,nmax):
+cdef inline float one_energy(np.ndarray[np.float64_t, ndim=2] arr,int ix,int iy,int nmax):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -144,27 +150,27 @@ def one_energy(arr,ix,iy,nmax):
 	Returns:
 	  en (float) = reduced energy of cell.
     """
-    en = 0.0
-    ixp = (ix+1)%nmax # These are the coordinates
-    ixm = (ix-1)%nmax # of the neighbours
-    iyp = (iy+1)%nmax # with wraparound
-    iym = (iy-1)%nmax #
+    cdef double en = 0.0
+    cdef int ixp = (ix+1)%nmax # These are the coordinates
+    cdef int ixm = (ix-1)%nmax # of the neighbours
+    cdef int iyp = (iy+1)%nmax # with wraparound
+    cdef int iym = (iy-1)%nmax #
 #
 # Add together the 4 neighbour contributions
 # to the energy
 #
+    cdef double ang
     ang = arr[ix,iy]-arr[ixp,iy]
-    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+    en += 0.5*(1.0 - 3.0*cos(ang)**2)
     ang = arr[ix,iy]-arr[ixm,iy]
-    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+    en += 0.5*(1.0 - 3.0*cos(ang)**2)
     ang = arr[ix,iy]-arr[ix,iyp]
-    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+    en += 0.5*(1.0 - 3.0*cos(ang)**2)
     ang = arr[ix,iy]-arr[ix,iym]
-    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+    en += 0.5*(1.0 - 3.0*cos(ang)**2)
     return en
 #=======================================================================
-@jit(nopython=True)
-def all_energy(arr,nmax):
+def all_energy(np.ndarray[np.float64_t, ndim=2] arr ,int nmax) -> float:
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -175,14 +181,14 @@ def all_energy(arr,nmax):
 	Returns:
 	  enall (float) = reduced energy of lattice.
     """
-    enall = 0.0
+    cdef double enall = 0.0
+    cdef int i, j
     for i in range(nmax):
         for j in range(nmax):
             enall += one_energy(arr,i,j,nmax)
     return enall
 #=======================================================================
-@jit(nopython=True)
-def get_order(arr: np.ndarray,nmax: int) -> float:
+def get_order(np.ndarray[np.float64_t, ndim=2] arr,int nmax) -> float:
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -194,6 +200,8 @@ def get_order(arr: np.ndarray,nmax: int) -> float:
 	Returns:
 	  max(eigenvalues(Qab)) (float) = order parameter for lattice.
     """
+    cdef np.ndarray[np.float64_t, ndim=2] Qab, delta
+    cdef np.ndarray[np.float64_t, ndim=3] lab
     Qab = np.zeros((3,3))
     delta = np.eye(3,3)
     #
@@ -201,6 +209,7 @@ def get_order(arr: np.ndarray,nmax: int) -> float:
     # put it in a (3,i,j) array.
     #
     lab = np.vstack((np.cos(arr),np.sin(arr),np.zeros_like(arr))).reshape(3,nmax,nmax)
+    cdef int a, b, i, j
     for a in range(3):
         for b in range(3):
             for i in range(nmax):
@@ -210,8 +219,7 @@ def get_order(arr: np.ndarray,nmax: int) -> float:
     eigenvalues,eigenvectors = np.linalg.eig(Qab)
     return eigenvalues.max()
 #=======================================================================
-@jit(nopython=True)
-def MC_step(arr: np.ndarray,Ts: float,nmax: int) -> float: #A numba ized version of the mc step function. How it impacts model accuracy still needs investigating.
+def MC_step(np.ndarray[np.float64_t, ndim=2] arr,float Ts,int nmax) -> float:
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -232,17 +240,21 @@ def MC_step(arr: np.ndarray,Ts: float,nmax: int) -> float: #A numba ized version
     # using lots of individual calls.  "scale" sets the width
     # of the distribution for the angle changes - increases
     # with temperature.
-    scale=0.1+Ts
-    accept = 0
+    cdef double scale=0.1+Ts
+    cdef int accept = 0
+    cdef np.ndarray[np.int64_t, ndim = 2] xran, yran
+    cdef np.ndarray[np.float64_t, ndim = 2] aran
     xran = np.random.randint(0,high=nmax, size=(nmax,nmax))
     yran = np.random.randint(0,high=nmax, size=(nmax,nmax))
-    # aran = np.random.normal(scale=scale, size=(nmax,nmax))  #Numba does not seem to like np.random.normal
-
+    aran = np.random.normal(scale=scale, size=(nmax,nmax))
+    cdef int i, j
+    cdef int ix, iy
+    cdef double ang, en0, en1, boltz
     for i in range(nmax):
         for j in range(nmax):
             ix = xran[i,j]
             iy = yran[i,j]
-            ang = scale*(np.random.random()-0.5)*2.0
+            ang = aran[i,j]
             en0 = one_energy(arr,ix,iy,nmax)
             arr[ix,iy] += ang
             en1 = one_energy(arr,ix,iy,nmax)
@@ -251,7 +263,7 @@ def MC_step(arr: np.ndarray,Ts: float,nmax: int) -> float: #A numba ized version
             else:
             # Now apply the Monte Carlo test - compare
             # exp( -(E_new - E_old) / T* ) >= rand(0,1)
-                boltz = np.exp( -(en1 - en0) / Ts )
+                boltz = exp( -(en1 - en0) / Ts )
 
                 if boltz >= np.random.uniform(0.0,1.0):
                     accept += 1

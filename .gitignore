@@ -7,3 +7,9 @@ __pycache__/
 speedups.xlsx
 
 fiveruns.sh
+
+#Files associated with cython build
+*.o
+*.so
+*.c
+cython_accel/build/
