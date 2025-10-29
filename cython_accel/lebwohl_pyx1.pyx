@@ -243,10 +243,11 @@ def MC_step(np.ndarray[np.float64_t, ndim=2] arr,float Ts,int nmax) -> float:
     cdef double scale=0.1+Ts
     cdef int accept = 0
     cdef np.ndarray[np.int64_t, ndim = 2] xran, yran
-    cdef np.ndarray[np.float64_t, ndim = 2] aran
+    cdef np.ndarray[np.float64_t, ndim = 2] aran, boltz_check
     xran = np.random.randint(0,high=nmax, size=(nmax,nmax))
     yran = np.random.randint(0,high=nmax, size=(nmax,nmax))
     aran = np.random.normal(scale=scale, size=(nmax,nmax))
+    boltz_check = np.random.random_sample((nmax, nmax))
     cdef int i, j
     cdef int ix, iy
     cdef double ang, en0, en1, boltz
@@ -265,7 +266,7 @@ def MC_step(np.ndarray[np.float64_t, ndim=2] arr,float Ts,int nmax) -> float:
             # exp( -(E_new - E_old) / T* ) >= rand(0,1)
                 boltz = exp( -(en1 - en0) / Ts )
 
-                if boltz >= np.random.uniform(0.0,1.0):
+                if boltz >= boltz_check[i,j]:
                     accept += 1
                 else:
                     arr[ix,iy] -= ang

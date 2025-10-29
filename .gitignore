@@ -1,8 +1,9 @@
 # Gitignore file to avoid tracking files unnecessarily
 
+.pytest_cache
 __pycache__/
 
-# This is where I am tracking the speed of the program
+# This is where I am tracking the speed of the program and planning my project
 
 speedups.xlsx
 
@@ -13,3 +14,7 @@ fiveruns.sh
 *.so
 *.c
 cython_accel/build/
+cython_parallel/build/
+
+#Output files
+LL*

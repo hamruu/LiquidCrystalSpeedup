@@ -248,7 +248,7 @@ def MC_step(arr,Ts,nmax):
             # exp( -(E_new - E_old) / T* ) >= rand(0,1)
                 boltz = np.exp( -(en1 - en0) / Ts )
 
-                if boltz >= np.random.uniform(0.0,1.0):
+                if boltz >= np.random.uniform(0.0,1.0): #Generate this before!!
                     accept += 1
                 else:
                     arr[ix,iy] -= ang

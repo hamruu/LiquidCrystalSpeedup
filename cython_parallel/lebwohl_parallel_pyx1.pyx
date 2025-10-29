@@ -5,7 +5,7 @@ This version in 2D.
 
 Run at the command line by typing:
 
-python LebwohlLasher.py <ITERATIONS> <SIZE> <TEMPERATURE> <PLOTFLAG>
+python LebwohlLasher.py <ITERATIONS> <SIZE> <TEMPERATURE> <PLOTFLAG> <THREADS>
 
 where:
   ITERATIONS = number of Monte Carlo steps, where 1MCS is when each cell
@@ -13,22 +13,31 @@ where:
   SIZE = side length of square lattice
   TEMPERATURE = reduced temperature in range 0.0 - 2.0.
   PLOTFLAG = 0 for no plot, 1 for energy plot and 2 for angle plot.
+  THREADS = number of openmp threads
   
 The initial configuration is set at random. The boundaries
 are periodic throughout the simulation.  During the
 time-stepping, an array containing two domains is used; these
 domains alternate between old data and new data.
-
 SH 16-Oct-23
 """
 
 import sys
-from numba import jit, prange
 import time
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+import cython
+from cython.parallel cimport parallel, prange
+cimport openmp
+cimport numpy as np
+from libc.math cimport cos
+from libc.math cimport sin
+from libc.math cimport exp
+np.import_array()
+
+
 #=======================================================================
 def initdat(nmax):
     """
@@ -128,8 +137,7 @@ def savedat(arr,nsteps,Ts,runtime,ratio,energy,order,nmax):
         print("   {:05d}    {:6.4f} {:12.4f}  {:6.4f} ".format(i,ratio[i],energy[i],order[i]),file=FileOut)
     FileOut.close()
 #=======================================================================
-@jit(nopython=True)
-def one_energy(arr,ix,iy,nmax):
+cdef inline float one_energy(double[:, :] arr_view,int ix,int iy,int nmax) nogil:
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -144,27 +152,27 @@ def one_energy(arr,ix,iy,nmax):
 	Returns:
 	  en (float) = reduced energy of cell.
     """
-    en = 0.0
-    ixp = (ix+1)%nmax # These are the coordinates
-    ixm = (ix-1)%nmax # of the neighbours
-    iyp = (iy+1)%nmax # with wraparound
-    iym = (iy-1)%nmax #
+    cdef double en = 0.0
+    cdef int ixp = (ix+1)%nmax # These are the coordinates
+    cdef int ixm = (ix-1)%nmax # of the neighbours
+    cdef int iyp = (iy+1)%nmax # with wraparound
+    cdef int iym = (iy-1)%nmax #
 #
 # Add together the 4 neighbour contributions
 # to the energy
 #
-    ang = arr[ix,iy]-arr[ixp,iy]
-    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
-    ang = arr[ix,iy]-arr[ixm,iy]
-    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
-    ang = arr[ix,iy]-arr[ix,iyp]
-    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
-    ang = arr[ix,iy]-arr[ix,iym]
-    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
+    cdef double ang
+    ang = arr_view[ix,iy]-arr_view[ixp,iy]
+    en += 0.5*(1.0 - 3.0*cos(ang)**2)
+    ang = arr_view[ix,iy]-arr_view[ixm,iy]
+    en += 0.5*(1.0 - 3.0*cos(ang)**2)
+    ang = arr_view[ix,iy]-arr_view[ix,iyp]
+    en += 0.5*(1.0 - 3.0*cos(ang)**2)
+    ang = arr_view[ix,iy]-arr_view[ix,iym]
+    en += 0.5*(1.0 - 3.0*cos(ang)**2)
     return en
 #=======================================================================
-@jit(nopython=True)
-def all_energy(arr,nmax):
+def all_energy(np.ndarray[np.float64_t, ndim=2] arr ,int nmax) -> float:
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -175,14 +183,14 @@ def all_energy(arr,nmax):
 	Returns:
 	  enall (float) = reduced energy of lattice.
     """
-    enall = 0.0
+    cdef double enall = 0.0
+    cdef int i, j
     for i in range(nmax):
         for j in range(nmax):
             enall += one_energy(arr,i,j,nmax)
     return enall
 #=======================================================================
-@jit(nopython=True)
-def get_order(arr: np.ndarray,nmax: int) -> float:
+def get_order(np.ndarray[np.float64_t, ndim=2] arr,int nmax) -> float:
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -194,6 +202,8 @@ def get_order(arr: np.ndarray,nmax: int) -> float:
 	Returns:
 	  max(eigenvalues(Qab)) (float) = order parameter for lattice.
     """
+    cdef np.ndarray[np.float64_t, ndim=2] Qab, delta
+    cdef np.ndarray[np.float64_t, ndim=3] lab
     Qab = np.zeros((3,3))
     delta = np.eye(3,3)
     #
@@ -201,6 +211,7 @@ def get_order(arr: np.ndarray,nmax: int) -> float:
     # put it in a (3,i,j) array.
     #
     lab = np.vstack((np.cos(arr),np.sin(arr),np.zeros_like(arr))).reshape(3,nmax,nmax)
+    cdef int a, b, i, j
     for a in range(3):
         for b in range(3):
             for i in range(nmax):
@@ -210,8 +221,9 @@ def get_order(arr: np.ndarray,nmax: int) -> float:
     eigenvalues,eigenvectors = np.linalg.eig(Qab)
     return eigenvalues.max()
 #=======================================================================
-@jit(nopython=True)
-def MC_step(arr: np.ndarray,Ts: float,nmax: int) -> float: #A numba ized version of the mc step function. How it impacts model accuracy still needs investigating.
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def MC_step(double[:, :] arr_view,float Ts,int nmax,int threads) -> float:
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -232,37 +244,40 @@ def MC_step(arr: np.ndarray,Ts: float,nmax: int) -> float: #A numba ized version
     # using lots of individual calls.  "scale" sets the width
     # of the distribution for the angle changes - increases
     # with temperature.
-    scale=0.1+Ts
-    accept = 0
-    xran = np.random.randint(0,high=nmax, size=(nmax,nmax))
-    yran = np.random.randint(0,high=nmax, size=(nmax,nmax))
-    aran = np.random.randn(nmax, nmax)*scale #Numba does not seem to like np.random.normal (https://numba.pydata.org/numba-doc/dev/reference/numpysupported.html#distributions)
+    cdef double scale=0.1+Ts
+    cdef int accept = 0
+    cdef np.ndarray[np.float64_t, ndim = 2] aran, boltz_check
+    aran = np.random.normal(scale=scale, size=(nmax,nmax))
     boltz_check = np.random.random_sample((nmax, nmax))
+    cdef int i, j
+    cdef double ang, en0, en1, boltz
 
+    ################################ TYPEVIEWS FOR GIL #################################
+    cdef double[:, :] aran_view = aran
+    cdef double[:, :] boltz_check_view = boltz_check
 
-    for i in range(nmax):#
-        
+    ################################ TYPEVIEWS FOR GIL #################################
+
+    for i in prange(nmax, nogil = True, num_threads = threads):
         for j in range(nmax):
-            ix = xran[i,j]
-            iy = yran[i,j]
-            ang = aran[i,j]
-            en0 = one_energy(arr,ix,iy,nmax)
-            arr[ix,iy] += ang
-            en1 = one_energy(arr,ix,iy,nmax)
+            ang = aran_view[i,j]
+            en0 = one_energy(arr_view,i,j,nmax)
+            arr_view[i,j] += ang
+            en1 = one_energy(arr_view,i,j,nmax)
             if en1<=en0:
                 accept += 1
             else:
             # Now apply the Monte Carlo test - compare
             # exp( -(E_new - E_old) / T* ) >= rand(0,1)
-                boltz = np.exp( -(en1 - en0) / Ts )
+                boltz = exp( -(en1 - en0) / Ts )
 
-                if boltz >= boltz_check[i,j]:
+                if boltz >= boltz_check_view[i,j]:
                     accept += 1
                 else:
-                    arr[ix,iy] -= ang
+                    arr_view[i,j] -= ang
     return accept/(nmax*nmax)
 #=======================================================================
-def main(program, nsteps, nmax, temp, pflag):
+def main(program, nsteps, nmax, temp, pflag, threads):
     """
     Arguments:
 	  program (string) = the name of the program;
@@ -270,6 +285,7 @@ def main(program, nsteps, nmax, temp, pflag):
       nmax (int) = side length of square lattice to simulate;
 	  temp (float) = reduced temperature (range 0 to 2);
 	  pflag (int) = a flag to control plotting.
+    threads = number of openmp threads
     Description:
       This is the main function running the Lebwohl-Lasher simulation.
     Returns:
@@ -291,7 +307,7 @@ def main(program, nsteps, nmax, temp, pflag):
     # Begin doing and timing some MC steps.
     initial = time.time()
     for it in range(1,nsteps+1):
-        ratio[it] = MC_step(lattice,temp,nmax)
+        ratio[it] = MC_step(lattice,temp,nmax, threads)
         energy[it] = all_energy(lattice,nmax)
         order[it] = get_order(lattice,nmax)
     final = time.time()
@@ -307,13 +323,14 @@ def main(program, nsteps, nmax, temp, pflag):
 # main simulation function.
 #
 if __name__ == '__main__':
-    if int(len(sys.argv)) == 5:
+    if int(len(sys.argv)) == 6:
         PROGNAME = sys.argv[0]
         ITERATIONS = int(sys.argv[1])
         SIZE = int(sys.argv[2])
         TEMPERATURE = float(sys.argv[3])
         PLOTFLAG = int(sys.argv[4])
-        main(PROGNAME, ITERATIONS, SIZE, TEMPERATURE, PLOTFLAG)
+        THREADS = int(sys.argv[5])
+        main(PROGNAME, ITERATIONS, SIZE, TEMPERATURE, PLOTFLAG, THREADS)
     else:
         print("Usage: python {} <ITERATIONS> <SIZE> <TEMPERATURE> <PLOTFLAG>".format(sys.argv[0]))
 #=======================================================================

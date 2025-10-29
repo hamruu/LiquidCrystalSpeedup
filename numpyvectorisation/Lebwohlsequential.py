@@ -23,12 +23,12 @@ SH 16-Oct-23
 """
 
 import sys
-from numba import jit, prange
 import time
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+
 #=======================================================================
 def initdat(nmax):
     """
@@ -128,7 +128,6 @@ def savedat(arr,nsteps,Ts,runtime,ratio,energy,order,nmax):
         print("   {:05d}    {:6.4f} {:12.4f}  {:6.4f} ".format(i,ratio[i],energy[i],order[i]),file=FileOut)
     FileOut.close()
 #=======================================================================
-@jit(nopython=True)
 def one_energy(arr,ix,iy,nmax):
     """
     Arguments:
@@ -163,7 +162,6 @@ def one_energy(arr,ix,iy,nmax):
     en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
     return en
 #=======================================================================
-@jit(nopython=True)
 def all_energy(arr,nmax):
     """
     Arguments:
@@ -181,8 +179,7 @@ def all_energy(arr,nmax):
             enall += one_energy(arr,i,j,nmax)
     return enall
 #=======================================================================
-@jit(nopython=True)
-def get_order(arr: np.ndarray,nmax: int) -> float:
+def get_order(arr,nmax):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -210,8 +207,7 @@ def get_order(arr: np.ndarray,nmax: int) -> float:
     eigenvalues,eigenvectors = np.linalg.eig(Qab)
     return eigenvalues.max()
 #=======================================================================
-@jit(nopython=True)
-def MC_step(arr: np.ndarray,Ts: float,nmax: int) -> float: #A numba ized version of the mc step function. How it impacts model accuracy still needs investigating.
+def MC_step(arr,Ts,nmax):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -234,21 +230,13 @@ def MC_step(arr: np.ndarray,Ts: float,nmax: int) -> float: #A numba ized version
     # with temperature.
     scale=0.1+Ts
     accept = 0
-    xran = np.random.randint(0,high=nmax, size=(nmax,nmax))
-    yran = np.random.randint(0,high=nmax, size=(nmax,nmax))
-    aran = np.random.randn(nmax, nmax)*scale #Numba does not seem to like np.random.normal (https://numba.pydata.org/numba-doc/dev/reference/numpysupported.html#distributions)
-    boltz_check = np.random.random_sample((nmax, nmax))
-
-
-    for i in range(nmax):#
-        
+    aran = np.random.normal(scale=scale, size=(nmax,nmax))
+    for i in range(nmax):
         for j in range(nmax):
-            ix = xran[i,j]
-            iy = yran[i,j]
-            ang = aran[i,j]
-            en0 = one_energy(arr,ix,iy,nmax)
-            arr[ix,iy] += ang
-            en1 = one_energy(arr,ix,iy,nmax)
+            ang = aran[i,j] #Changed to be sequential. USed to visit randomly, now visit every site.
+            en0 = one_energy(arr,i,j,nmax)
+            arr[i,j] += ang
+            en1 = one_energy(arr,i,j,nmax)
             if en1<=en0:
                 accept += 1
             else:
@@ -256,10 +244,10 @@ def MC_step(arr: np.ndarray,Ts: float,nmax: int) -> float: #A numba ized version
             # exp( -(E_new - E_old) / T* ) >= rand(0,1)
                 boltz = np.exp( -(en1 - en0) / Ts )
 
-                if boltz >= boltz_check[i,j]:
+                if boltz >= np.random.uniform(0.0,1.0):
                     accept += 1
                 else:
-                    arr[ix,iy] -= ang
+                    arr[i,j] -= ang
     return accept/(nmax*nmax)
 #=======================================================================
 def main(program, nsteps, nmax, temp, pflag):
