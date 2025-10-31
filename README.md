@@ -27,6 +27,6 @@ where:
 
   **PLOTFLAG** = 0 for no plot, 1 for energy plot and 2 for angle plot.
 
-For the mpi4py and parallel cython versions, an additional THREADS argument is added at the end to specify the desired number of threads.
+For the mpi4py and parallel cython versions, an additional **THREADS** argument is added at the end to specify the desired number of threads.
 
 The original code was written by Dr. Simon Hanna, University of Bristol.
