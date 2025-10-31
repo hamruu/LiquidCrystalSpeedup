@@ -13,15 +13,20 @@ This includes:
 
 #### Usage:
 ```sh 
-python program.py **ITERATIONS SIZE TEMPERATURE PLOTFLAG**
+python program.py <ITERATIONS> <SIZE> <TEMPERATURE> <PLOTFLAG>
 ```
 
 where:
-  ITERATIONS = number of Monte Carlo steps, where 1MCS is when each cell has attempted a change once on average (i.e. SIZE*SIZE attempts)
-  SIZE = side length of square lattice
-  TEMPERATURE = reduced temperature in range 0.0 - 2.0.
-  PLOTFLAG = 0 for no plot, 1 for energy plot and 2 for angle plot.
 
-For the mpi4py and parallel cython versions, an additional argument is added at the end to specify the desired number of threads.
+
+  **ITERATIONS** = number of Monte Carlo steps, where 1MCS is when each cell has attempted a change once on average (i.e. SIZE*SIZE attempts)
+
+  **SIZE** = side length of square lattice
+
+  **TEMPERATURE** = reduced temperature in range 0.0 - 2.0.
+
+  **PLOTFLAG** = 0 for no plot, 1 for energy plot and 2 for angle plot.
+
+For the mpi4py and parallel cython versions, an additional THREADS argument is added at the end to specify the desired number of threads.
 
 The original code was written by Dr. Simon Hanna, University of Bristol.
