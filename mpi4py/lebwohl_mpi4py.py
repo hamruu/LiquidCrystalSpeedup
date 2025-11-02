@@ -363,7 +363,8 @@ def main(program, nsteps, nmax, temp, pflag):
     final = MPI.Wtime()
     local_runtime = final-initial
 
-
+    #Pulling local data together to form meaningful outputs.
+    slices_gather = comm.gather(local_sublattice[1:-1,:], root =0)
     comm.Reduce(local_energy, global_energy, op=MPI.SUM, root=0)
     comm.Reduce(local_ratio,  global_ratio_sum,  op=MPI.SUM, root=0)
     comm.Reduce(local_order,  global_order_sum,  op=MPI.SUM, root=0)
@@ -374,20 +375,12 @@ def main(program, nsteps, nmax, temp, pflag):
         global_order = global_order_sum / size
         global_runtime = runtime_sum / size
         global_ratio = global_ratio_sum / size
+        reconstructed_lattice = np.vstack(slices_gather)
 
         print("{}: Size: {:d}, Steps: {:d}, T*: {:5.3f}: Order: {:5.3f}, Time: {:8.6f} s".format(program, nmax,nsteps,temp,global_order[nsteps-1],global_runtime))
-        
+        savedat(reconstructed_lattice,nsteps,temp,global_runtime,global_ratio,global_energy,global_order,nmax)
+        plotdat(reconstructed_lattice,pflag,nmax)
 
-
-
-
-
-
-    # # Final outputs
-    # print("{}: Size: {:d}, Steps: {:d}, T*: {:5.3f}: Order: {:5.3f}, Time: {:8.6f} s".format(program, nmax,nsteps,temp,global_order[nsteps-1],runtime))
-    # # Plot final frame of lattice and generate output file
-    # savedat(lattice,nsteps,temp,runtime,ratio,energy,order,nmax)
-    # plotdat(lattice,pflag,nmax)
 #=======================================================================
 # Main part of program, getting command line arguments and calling
 # main simulation function.
