@@ -15,18 +15,25 @@ This includes:
 ```sh 
 python program.py <ITERATIONS> <SIZE> <TEMPERATURE> <PLOTFLAG>
 ```
+#### Or, for mpi4py:
+```sh
+mpiexec --use-hwthread-cpus -n <NUMCORES> python lebwohl_mpi4py.py <ITERATIONS> <SIZE> <TEMPERATURE> <PLOTFLAG> 
+```
+
 
 where:
 
 
-  **ITERATIONS** = number of Monte Carlo steps, where 1MCS is when each cell has attempted a change once on average (i.e. SIZE*SIZE attempts)
+  **ITERATIONS** = Number of Monte Carlo steps, where 1MCS is when each cell has attempted a change once on average (i.e. SIZE*SIZE attempts)
 
-  **SIZE** = side length of square lattice
+  **SIZE** = Side length of square lattice
 
-  **TEMPERATURE** = reduced temperature in range 0.0 - 2.0.
+  **TEMPERATURE** = Reduced temperature in range 0.0 - 2.0.
 
   **PLOTFLAG** = 0 for no plot, 1 for energy plot and 2 for angle plot.
 
-For the mpi4py and parallel cython versions, an additional **THREADS** argument is added at the end to specify the desired number of threads.
+  **NUMCORES** = The desired number of cores (the --use-hwthread-cpus flag also allows the use of hyperthreading / logical processors)
+
+For the parallel cython version, an additional **THREADS** argument is added at the end to specify the desired number of threads.
 
 The original code was written by Dr. Simon Hanna, University of Bristol.
