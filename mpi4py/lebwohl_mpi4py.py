@@ -289,34 +289,37 @@ def main(program, nsteps, nmax, temp, pflag):
     comm = MPI.COMM_WORLD
     rank= comm.Get_rank()
     size = comm.Get_size()
+    halo = np.zeros((1, nmax))
 
-    if rank == 0:
+    if rank == 0: 
+        #Creating the lattice on the root proces.
         lattice = initdat(nmax)
         for rank in range(size):
             start,end,rows = slice_lattice(nmax,size,rank)
-            sublattice = lattice[start:end]
-            
-            if rank == 0:
+            sublattice = np.vstack((halo, lattice[start:end], halo)) #Slicing the lattice using the indexes gained from slice_lattice
+
+            if rank == 0: #Rank zero retains its own local slice, and sends the other slices off
                 local_sublattice = sublattice
 
             else:
-                comm.send(sublattice, dest = rank, tag = 1)
-        
+                comm.send(sublattice, dest = rank, tag = 1)    
     else: 
         local_sublattice = comm.recv(source = 0, tag = 1)
     
-    #print(local_sublattice) ##For debugging again
+
+    print(local_sublattice)
 
 
-      # #arrays to store energy, acceptance ratio, order
-      # energy = np.zeros(nsteps+1,dtype=np.double)              #MAKE LOCAL VERSIONS THAT ARE SENT BACK AND UPDATE PER STEP!
-      # ratio = np.zeros(nsteps+1,dtype=np.double)
-      # order = np.zeros(nsteps+1,dtype=np.double)
+
+    # #arrays to store energy, acceptance ratio, order
+    # local_energy = np.zeros(nsteps+1,dtype=np.double)              #MAKE LOCAL VERSIONS THAT ARE SENT BACK AND UPDATE PER STEP!
+    # local_ratio = np.zeros(nsteps+1,dtype=np.double)
+    # local_order = np.zeros(nsteps+1,dtype=np.double)
   
-      # #Initial value arrays
-      # energy[0] = all_energy(lattice,nmax)
-      # ratio[0] = 0.5 # ideal value
-      # order[0] = get_order(lattice,nmax)
+    # #Initial value arrays
+    # local_energy[0] = all_energy(lattice,nmax)
+    # local_ratio[0] = 0.5 # ideal value
+    # local_order[0] = get_order(lattice,nmax)
     
 
 
