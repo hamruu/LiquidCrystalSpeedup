@@ -129,7 +129,7 @@ def savedat(arr,nsteps,Ts,runtime,ratio,energy,order,nmax):
         print("   {:05d}    {:6.4f} {:12.4f}  {:6.4f} ".format(i,ratio[i],energy[i],order[i]),file=FileOut)
     FileOut.close()
 #=======================================================================
-def one_energy(arr,ix,iy,nmax):
+def one_energy(arr,ix,iy):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -145,10 +145,11 @@ def one_energy(arr,ix,iy,nmax):
 	  en (float) = reduced energy of cell.
     """
     en = 0.0
-    ixp = (ix+1)%nmax # These are the coordinates
-    ixm = (ix-1)%nmax # of the neighbours
-    iyp = (iy+1)%nmax # with wraparound
-    iym = (iy-1)%nmax #
+    rows, cols = arr.shape
+    ixp = (ix+1)%rows # These are the coordinates
+    ixm = (ix-1)%rows # of the neighbours
+    iyp = (iy+1)%cols # with wraparound
+    iym = (iy-1)%cols #
 #
 # Add together the 4 neighbour contributions
 # to the energy
@@ -163,7 +164,7 @@ def one_energy(arr,ix,iy,nmax):
     en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
     return en
 #=======================================================================
-def all_energy(arr,nmax):
+def all_energy(arr):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -175,12 +176,13 @@ def all_energy(arr,nmax):
 	  enall (float) = reduced energy of lattice.
     """
     enall = 0.0
-    for i in range(nmax):
-        for j in range(nmax):
-            enall += one_energy(arr,i,j,nmax)
+    rows, cols = arr.shape
+    for i in range(rows):
+        for j in range(cols):
+            enall += one_energy(arr,i,j)
     return enall
 #=======================================================================
-def get_order(arr,nmax):
+def get_order(arr):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -194,21 +196,22 @@ def get_order(arr,nmax):
     """
     Qab = np.zeros((3,3))
     delta = np.eye(3,3)
+    rows, cols = arr.shape
     #
     # Generate a 3D unit vector for each cell (i,j) and
     # put it in a (3,i,j) array.
     #
-    lab = np.vstack((np.cos(arr),np.sin(arr),np.zeros_like(arr))).reshape(3,nmax,nmax)
+    lab = np.vstack((np.cos(arr),np.sin(arr),np.zeros_like(arr))).reshape(3,rows,cols)
     for a in range(3):
         for b in range(3):
-            for i in range(nmax):
-                for j in range(nmax):
+            for i in range(rows):
+                for j in range(cols):
                     Qab[a,b] += 3*lab[a,i,j]*lab[b,i,j] - delta[a,b]
-    Qab = Qab/(2*nmax*nmax)
+    Qab = Qab/(2*rows*cols)
     eigenvalues,eigenvectors = np.linalg.eig(Qab)
     return eigenvalues.max()
 #=======================================================================
-def MC_step(arr,Ts,nmax):
+def MC_step(arr,Ts):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -231,17 +234,20 @@ def MC_step(arr,Ts,nmax):
     # with temperature.
     scale=0.1+Ts
     accept = 0
-    xran = np.random.randint(0,high=nmax, size=(nmax,nmax))
-    yran = np.random.randint(0,high=nmax, size=(nmax,nmax))
-    aran = np.random.normal(scale=scale, size=(nmax,nmax))
-    for i in range(nmax):
-        for j in range(nmax):
+    rows, cols = arr.shape
+    xran = np.random.randint(0,high=rows, size=(rows,cols))
+    yran = np.random.randint(0,high=cols, size=(rows,cols))
+    aran = np.random.normal(scale=scale, size=(rows,cols))
+    boltz_check = np.random.random_sample((rows, cols))
+
+    for i in range(rows):
+        for j in range(cols):
             ix = xran[i,j]
             iy = yran[i,j]
             ang = aran[i,j]
-            en0 = one_energy(arr,ix,iy,nmax)
+            en0 = one_energy(arr,ix,iy)
             arr[ix,iy] += ang
-            en1 = one_energy(arr,ix,iy,nmax)
+            en1 = one_energy(arr,ix,iy)
             if en1<=en0:
                 accept += 1
             else:
@@ -249,11 +255,11 @@ def MC_step(arr,Ts,nmax):
             # exp( -(E_new - E_old) / T* ) >= rand(0,1)
                 boltz = np.exp( -(en1 - en0) / Ts )
 
-                if boltz >= np.random.uniform(0.0,1.0): #Generate this before!!
+                if boltz >= boltz_check[i,j]: #Generate this before!!
                     accept += 1
                 else:
                     arr[ix,iy] -= ang
-    return accept/(nmax*nmax)
+    return accept/(rows*cols)
 #=======================================================================
 def slice_lattice(nmax, size, rank):
     """
@@ -269,7 +275,7 @@ def slice_lattice(nmax, size, rank):
         rows = averow
         start = rank*averow + extra
     end = start + rows
-    print(f"Mpi rank {rank} is responsible for {rows} rows") #Here for debugging
+    #print(f"Mpi rank {rank} is responsible for {rows} rows") #Here for debugging
     return start, end, rows
 
 #=====================
@@ -290,41 +296,95 @@ def main(program, nsteps, nmax, temp, pflag):
     rank= comm.Get_rank()
     size = comm.Get_size()
     halo = np.zeros((1, nmax))
-
+    
     if rank == 0: 
         #Creating the lattice on the root proces.
         lattice = initdat(nmax)
-        for rank in range(size):
-            start,end,rows = slice_lattice(nmax,size,rank)
-            sublattice = np.vstack((halo, lattice[start:end], halo)) #Slicing the lattice using the indexes gained from slice_lattice
+        #Creating global arrays for model parameters on root process
+        global_energy = np.zeros(nsteps+1,dtype=np.double)
+        global_ratio_sum = np.zeros(nsteps+1,dtype=np.double)
+        global_order_sum = np.zeros(nsteps+1,dtype=np.double)
+        runtime_sum = 0.0
 
-            if rank == 0: #Rank zero retains its own local slice, and sends the other slices off
+        for r in range(size):
+            start,end,rows = slice_lattice(nmax,size,r)
+            sublattice = np.vstack((halo, lattice[start:end], halo)) #Slicing the lattice using the indexes gained from slice_lattice + adding halos
+
+            if r == 0: #Rank zero retains its own local slice, and sends the other slices off
                 local_sublattice = sublattice
 
             else:
-                comm.send(sublattice, dest = rank, tag = 1)    
+                comm.send(sublattice, dest = r, tag = 1)    
     else: 
         local_sublattice = comm.recv(source = 0, tag = 1)
+        global_energy = None
+        global_ratio_sum = None
+        global_order_sum = None
+        runtime_sum = None
+
+    comm.Barrier() #Just to make sure everything is caught up
     
+    #Now the halo rows need exchanging wtih boundaries.
+    up = (rank-1)%size
+    down = (rank+1)%size
+    # print(f"up from rank {rank} is rank {up}, and down is rank {down}")
 
-    print(local_sublattice)
+    frombelow = np.empty_like(local_sublattice[1, :])
+    fromabove = np.empty_like(local_sublattice[1, :])
 
+    top_row = np.ascontiguousarray(local_sublattice[1, :])
+    bottom_row = np.ascontiguousarray(local_sublattice[-2, :])
 
+    comm.Sendrecv(sendbuf=top_row, dest = up, sendtag = 44,
+                  recvbuf = frombelow, source = down, recvtag= 44)
+    comm.Sendrecv(sendbuf = bottom_row, dest = down, sendtag = 55,
+                  recvbuf = fromabove, source = up, recvtag = 55)
+    
+    local_sublattice[0, :] = fromabove
+    local_sublattice[-1, :] = frombelow
 
-    # #arrays to store energy, acceptance ratio, order
-    # local_energy = np.zeros(nsteps+1,dtype=np.double)              #MAKE LOCAL VERSIONS THAT ARE SENT BACK AND UPDATE PER STEP!
-    # local_ratio = np.zeros(nsteps+1,dtype=np.double)
-    # local_order = np.zeros(nsteps+1,dtype=np.double)
+    #Local arrays for the model parameters are now created
+    local_energy = np.zeros(nsteps+1,dtype=np.double)
+    local_ratio = np.zeros(nsteps+1,dtype=np.double)
+    local_order = np.zeros(nsteps+1,dtype=np.double)
   
-    # #Initial value arrays
-    # local_energy[0] = all_energy(lattice,nmax)
-    # local_ratio[0] = 0.5 # ideal value
-    # local_order[0] = get_order(lattice,nmax)
+    #Initial values for local arrays
+    local_energy[0] = all_energy(local_sublattice[1:-1, :])
+    local_ratio[0] = 0.5 # ideal value
+    local_order[0] = get_order(local_sublattice[1:-1, :])
     
+    #Beginning of simulation loop
+    initial = MPI.Wtime()
+
+    for it in range(1,nsteps+1):
+        local_ratio[it] = MC_step(local_sublattice,temp)
+        local_energy[it] = all_energy(local_sublattice[1:-1, :]) #Slicing to avoid halos inflating energy and order calculations
+        local_order[it] = get_order(local_sublattice[1:-1, :])
+    final = MPI.Wtime()
+    local_runtime = final-initial
+
+
+    comm.Reduce(local_energy, global_energy, op=MPI.SUM, root=0)
+    comm.Reduce(local_ratio,  global_ratio_sum,  op=MPI.SUM, root=0)
+    comm.Reduce(local_order,  global_order_sum,  op=MPI.SUM, root=0)
+    runtime_sum = comm.reduce(local_runtime, op=MPI.SUM, root=0)
+
+
+    if rank == 0:
+        global_order = global_order_sum / size
+        global_runtime = runtime_sum / size
+        global_ratio = global_ratio_sum / size
+
+        print("{}: Size: {:d}, Steps: {:d}, T*: {:5.3f}: Order: {:5.3f}, Time: {:8.6f} s".format(program, nmax,nsteps,temp,global_order[nsteps-1],global_runtime))
+        
+
+
+
+
 
 
     # # Final outputs
-    # print("{}: Size: {:d}, Steps: {:d}, T*: {:5.3f}: Order: {:5.3f}, Time: {:8.6f} s".format(program, nmax,nsteps,temp,order[nsteps-1],runtime))
+    # print("{}: Size: {:d}, Steps: {:d}, T*: {:5.3f}: Order: {:5.3f}, Time: {:8.6f} s".format(program, nmax,nsteps,temp,global_order[nsteps-1],runtime))
     # # Plot final frame of lattice and generate output file
     # savedat(lattice,nsteps,temp,runtime,ratio,energy,order,nmax)
     # plotdat(lattice,pflag,nmax)

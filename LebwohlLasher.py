@@ -267,6 +267,7 @@ def main(program, nsteps, nmax, temp, pflag):
     Returns:
       NULL
     """
+    #np.random.seed(21)
     # Create and initialise lattice
     lattice = initdat(nmax)
     # Plot initial frame of lattice
@@ -288,6 +289,7 @@ def main(program, nsteps, nmax, temp, pflag):
         order[it] = get_order(lattice,nmax)
     final = time.time()
     runtime = final-initial
+
     
     # Final outputs
     print("{}: Size: {:d}, Steps: {:d}, T*: {:5.3f}: Order: {:5.3f}, Time: {:8.6f} s".format(program, nmax,nsteps,temp,order[nsteps-1],runtime))
