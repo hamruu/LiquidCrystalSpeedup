@@ -329,16 +329,17 @@ def main(program, nsteps, nmax, temp, pflag):
     down = (rank+1)%size
     # print(f"up from rank {rank} is rank {up}, and down is rank {down}")
 
+    #This Halo step outside the sim loop is necessary to make sure that the first step proceeds smoothly. After that, the loop updates halos in half steps from odd and even ranks
     frombelow = np.empty_like(local_sublattice[1, :])
     fromabove = np.empty_like(local_sublattice[1, :])
 
     top_row = np.ascontiguousarray(local_sublattice[1, :])
     bottom_row = np.ascontiguousarray(local_sublattice[-2, :])
 
-    comm.Sendrecv(sendbuf=top_row, dest = up, sendtag = 44,
-                  recvbuf = frombelow, source = down, recvtag= 44)
-    comm.Sendrecv(sendbuf = bottom_row, dest = down, sendtag = 55,
-                  recvbuf = fromabove, source = up, recvtag = 55)
+    comm.Sendrecv(sendbuf=top_row, dest = up, sendtag = 2,
+                  recvbuf = frombelow, source = down, recvtag= 2)
+    comm.Sendrecv(sendbuf = bottom_row, dest = down, sendtag = 3,
+                  recvbuf = fromabove, source = up, recvtag = 3)
     
     local_sublattice[0, :] = fromabove
     local_sublattice[-1, :] = frombelow
@@ -347,7 +348,6 @@ def main(program, nsteps, nmax, temp, pflag):
     local_energy = np.zeros(nsteps+1,dtype=np.double)
     local_ratio = np.zeros(nsteps+1,dtype=np.double)
     local_order = np.zeros(nsteps+1,dtype=np.double)
-  
     #Initial values for local arrays
     local_energy[0] = all_energy(local_sublattice[1:-1, :])
     local_ratio[0] = 0.5 # ideal value
@@ -357,7 +357,35 @@ def main(program, nsteps, nmax, temp, pflag):
     initial = MPI.Wtime()
 
     for it in range(1,nsteps+1):
-        local_ratio[it] = MC_step(local_sublattice,temp)
+
+        if rank % 2 == 1:
+            local_ratio[it] = MC_step(local_sublattice,temp)
+
+        top_row = np.ascontiguousarray(local_sublattice[1, :])
+        bottom_row = np.ascontiguousarray(local_sublattice[-2, :])
+        comm.Sendrecv(sendbuf=top_row, dest = up, sendtag = 6,
+                recvbuf = frombelow, source = down, recvtag= 6)
+        comm.Sendrecv(sendbuf = bottom_row, dest = down, sendtag = 7,
+               recvbuf = fromabove, source = up, recvtag = 7)
+        local_sublattice[0, :] = fromabove
+        local_sublattice[-1, :] = frombelow
+        comm.Barrier()
+
+        if rank % 2 == 0:
+            local_ratio[it] = MC_step(local_sublattice, temp)
+
+        top_row = np.ascontiguousarray(local_sublattice[1, :])
+        bottom_row = np.ascontiguousarray(local_sublattice[-2, :])
+
+        comm.Sendrecv(sendbuf=top_row, dest = up, sendtag = 9,
+                recvbuf = frombelow, source = down, recvtag= 9)
+        comm.Sendrecv(sendbuf = bottom_row, dest = down, sendtag = 10,
+                recvbuf = fromabove, source = up, recvtag = 10)
+        local_sublattice[0, :] = fromabove
+        local_sublattice[-1, :] = frombelow
+        comm.Barrier()
+
+
         local_energy[it] = all_energy(local_sublattice[1:-1, :]) #Slicing to avoid halos inflating energy and order calculations
         local_order[it] = get_order(local_sublattice[1:-1, :])
     final = MPI.Wtime()
@@ -383,7 +411,8 @@ def main(program, nsteps, nmax, temp, pflag):
 
 #=======================================================================
 # Main part of program, getting command line arguments and calling
-# main simulation function.
+# main simulation function..
+
 #
 if __name__ == '__main__':
     if int(len(sys.argv)) == 5:

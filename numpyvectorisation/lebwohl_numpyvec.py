@@ -72,9 +72,7 @@ def plotdat(arr,pflag,nmax):
     cols = np.zeros((nmax,nmax))
     if pflag==1: # colour the arrows according to energy
         mpl.rc('image', cmap='rainbow')
-        for i in range(nmax):
-            for j in range(nmax):
-                cols[i,j] = one_energy(arr,i,j,nmax)
+        cols = one_energy(arr)
         norm = plt.Normalize(cols.min(), cols.max())
     elif pflag==2: # colour the arrows according to angle
         mpl.rc('image', cmap='hsv')
@@ -128,58 +126,36 @@ def savedat(arr,nsteps,Ts,runtime,ratio,energy,order,nmax):
         print("   {:05d}    {:6.4f} {:12.4f}  {:6.4f} ".format(i,ratio[i],energy[i],order[i]),file=FileOut)
     FileOut.close()
 #=======================================================================
-def one_energy(arr,ix,iy,nmax):
+def one_energy(arr):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
-	  ix (int) = x lattice coordinate of cell;
-	  iy (int) = y lattice coordinate of cell;
-      nmax (int) = side length of square lattice.
     Description:
-      Function that computes the energy of a single cell of the
-      lattice taking into account periodic boundaries.  Working with
-      reduced energy (U/epsilon), equivalent to setting epsilon=1 in
-      equation (1) in the project notes.
+      Calculates the energy at each site of the lattice. In this version this happens all at once
 	Returns:
 	  en (float) = reduced energy of cell.
     """
-    en = 0.0
-    ixp = (ix+1)%nmax # These are the coordinates
-    ixm = (ix-1)%nmax # of the neighbours
-    iyp = (iy+1)%nmax # with wraparound
-    iym = (iy-1)%nmax #
-#
-# Add together the 4 neighbour contributions
-# to the energy
-#
-    ang = arr[ix,iy]-arr[ixp,iy]
-    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
-    ang = arr[ix,iy]-arr[ixm,iy]
-    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
-    ang = arr[ix,iy]-arr[ix,iyp]
-    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
-    ang = arr[ix,iy]-arr[ix,iym]
-    en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
-    return en
+    return(
+            0.5 * (1.0 - 3.0 * np.cos(arr - np.roll(arr, 1, axis=0))**2) #left
+          + 0.5 * (1.0 - 3.0 * np.cos(arr - np.roll(arr, -1, axis=0))**2) #right
+          + 0.5 * (1.0 - 3.0 * np.cos(arr- np.roll(arr, 1, axis=1))**2) #down
+          + 0.5 * (1.0 - 3.0 * np.cos(arr - np.roll(arr, -1, axis=1))**2) #up
+        )
 #=======================================================================
-def all_energy(arr,nmax):
+def all_energy(arr):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
-      nmax (int) = side length of square lattice.
     Description:
       Function to compute the energy of the entire lattice. Output
-      is in reduced units (U/epsilon).
+      is in reduced units (U/epsilon). Massively simplified in the 
+      vectorised version due to how one energy now works.
 	Returns:
 	  enall (float) = reduced energy of lattice.
     """
-    enall = 0.0
-    for i in range(nmax):
-        for j in range(nmax):
-            enall += one_energy(arr,i,j,nmax)
-    return enall
-#=======================================================================
-def get_order(arr,nmax):
+    return np.sum(one_energy(arr))
+#==================================================== ===================
+def get_order(arr,nmax): ##POTENTIAL FOR NUMPY VEC##
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -207,48 +183,36 @@ def get_order(arr,nmax):
     eigenvalues,eigenvectors = np.linalg.eig(Qab)
     return eigenvalues.max()
 #=======================================================================
-def MC_step(arr,Ts,nmax):
+def MC_step_checked(arr,Ts):
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
 	  Ts (float) = reduced temperature (range 0 to 2);
-      nmax (int) = side length of square lattice.
     Description:
-      Function to perform one MC step, which consists of an average
-      of 1 attempted change per lattice site.  Working with reduced
-      temperature Ts = kT/epsilon.  Function returns the acceptance
-      ratio for information.  This is the fraction of attempted changes
-      that are successful.  Generally aim to keep this around 0.5 for
-      efficient simulation.
+      An adapted version of the serial MC step, designed to remove the nested loop for efficiencies sake. Harnesses numpy vectorisation.
 	Returns:
 	  accept/(nmax**2) (float) = acceptance ratio for current MCS.
     """
-    #
-    # Pre-compute some random numbers.  This is faster than
-    # using lots of individual calls.  "scale" sets the width
-    # of the distribution for the angle changes - increases
-    # with temperature.
     scale=0.1+Ts
-    accept = 0
-    aran = np.random.normal(scale=scale, size=(nmax,nmax))
-    for i in range(nmax):
-        for j in range(nmax):
-            ang = aran[i,j] #Changed to be sequential. USed to visit randomly, now visit every site.
-            en0 = one_energy(arr,i,j,nmax)
-            arr[i,j] += ang
-            en1 = one_energy(arr,i,j,nmax)
-            if en1<=en0:
-                accept += 1
-            else:
-            # Now apply the Monte Carlo test - compare
-            # exp( -(E_new - E_old) / T* ) >= rand(0,1)
-                boltz = np.exp( -(en1 - en0) / Ts )
-
-                if boltz >= np.random.uniform(0.0,1.0):
-                    accept += 1
-                else:
-                    arr[i,j] -= ang
-    return accept/(nmax*nmax)
+    acceptTotal = 0
+    aran = np.random.normal(scale=scale, size = arr.shape)
+    boltz_check = np.random.random_sample(arr.shape)
+    for selected in [0,1]:
+        #Creates a boolean array same size as arr, checked with true and false
+        mask = (np.indices(arr.shape).sum(axis=0) % 2 == selected)
+        #Creates ang to propose change at sites. Not checked yet
+        en0 = one_energy(arr)
+        trial= arr + aran*mask
+        en1 = one_energy(trial)
+        en_diff = en1-en0
+        boltz = np.exp(-en_diff/Ts)
+        #Evaluates the proposed change for the selected subset.
+        accept = mask & ((en_diff <= 0) | (boltz >= boltz_check))
+        arr[accept]+=aran[accept]
+        acceptTotal += np.mean(accept)
+    
+    return acceptTotal / 2.0
+    
 #=======================================================================
 def main(program, nsteps, nmax, temp, pflag):
     """
@@ -263,6 +227,7 @@ def main(program, nsteps, nmax, temp, pflag):
     Returns:
       NULL
     """
+    #np.random.seed(42)
     # Create and initialise lattice
     lattice = initdat(nmax)
     # Plot initial frame of lattice
@@ -272,15 +237,15 @@ def main(program, nsteps, nmax, temp, pflag):
     ratio = np.zeros(nsteps+1,dtype=np.double)
     order = np.zeros(nsteps+1,dtype=np.double)
     # Set initial values in arrays
-    energy[0] = all_energy(lattice,nmax)
+    energy[0] = all_energy(lattice)
     ratio[0] = 0.5 # ideal value
     order[0] = get_order(lattice,nmax)
 
     # Begin doing and timing some MC steps.
     initial = time.time()
     for it in range(1,nsteps+1):
-        ratio[it] = MC_step(lattice,temp,nmax)
-        energy[it] = all_energy(lattice,nmax)
+        ratio[it] = MC_step_checked(lattice,temp)
+        energy[it] = all_energy(lattice)
         order[it] = get_order(lattice,nmax)
     final = time.time()
     runtime = final-initial

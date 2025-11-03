@@ -223,7 +223,7 @@ def get_order(np.ndarray[np.float64_t, ndim=2] arr,int nmax) -> float:
 #=======================================================================
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def MC_step(double[:, :] arr_view,float Ts,int nmax,int threads) -> float:
+def MC_step(double[:, :] arr,float Ts,int nmax,int threads) -> float:
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -246,24 +246,26 @@ def MC_step(double[:, :] arr_view,float Ts,int nmax,int threads) -> float:
     # with temperature.
     cdef double scale=0.1+Ts
     cdef int accept = 0
-    cdef np.ndarray[np.float64_t, ndim = 2] aran, boltz_check
+    cdef double [:, :] aran 
+    cdef double [:, :] boltz_check
+    ## cdef np.ndarray[np.float64_t, ndim = 2] aran, boltz_check
     aran = np.random.normal(scale=scale, size=(nmax,nmax))
     boltz_check = np.random.random_sample((nmax, nmax))
     cdef int i, j
     cdef double ang, en0, en1, boltz
 
     ################################ TYPEVIEWS FOR GIL #################################
-    cdef double[:, :] aran_view = aran
-    cdef double[:, :] boltz_check_view = boltz_check
+    ##  cdef double[:, :] aran_view = aran
+    ##  cdef double[:, :] boltz_check_view = boltz_check
 
     ################################ TYPEVIEWS FOR GIL #################################
 
     for i in prange(nmax, nogil = True, num_threads = threads):
         for j in range(nmax):
-            ang = aran_view[i,j]
-            en0 = one_energy(arr_view,i,j,nmax)
-            arr_view[i,j] += ang
-            en1 = one_energy(arr_view,i,j,nmax)
+            ang = aran[i,j]
+            en0 = one_energy(arr,i,j,nmax)
+            arr[i,j] += ang
+            en1 = one_energy(arr,i,j,nmax)
             if en1<=en0:
                 accept += 1
             else:
@@ -271,10 +273,10 @@ def MC_step(double[:, :] arr_view,float Ts,int nmax,int threads) -> float:
             # exp( -(E_new - E_old) / T* ) >= rand(0,1)
                 boltz = exp( -(en1 - en0) / Ts )
 
-                if boltz >= boltz_check_view[i,j]:
+                if boltz >= boltz_check[i,j]:
                     accept += 1
                 else:
-                    arr_view[i,j] -= ang
+                    arr[i,j] -= ang
     return accept/(nmax*nmax)
 #=======================================================================
 def main(program, nsteps, nmax, temp, pflag, threads):
