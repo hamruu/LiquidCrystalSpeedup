@@ -1,4 +1,7 @@
 import numpy as np
+from pathlib import Path
+import sys
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from LebwohlLasher import initdat
 def test_initdat_initialization():
@@ -22,4 +25,3 @@ def test_all_energy_calc():
     assert arr_energy == n*n*-4  #Makes sure that one and all energy are being calculated properly. 
                                  #This uniformity also shows the boundary conditions are working, as literally every cell is behaving the same.
     
-##Remembember to test monte carlo step
