@@ -254,12 +254,6 @@ def MC_step(double[:, :] arr,float Ts,int nmax,int threads) -> float:
     cdef int i, j
     cdef double ang, en0, en1, boltz
 
-    ################################ TYPEVIEWS FOR GIL #################################
-    ##  cdef double[:, :] aran_view = aran
-    ##  cdef double[:, :] boltz_check_view = boltz_check
-
-    ################################ TYPEVIEWS FOR GIL #################################
-
     for i in prange(nmax, nogil = True, num_threads = threads):
         for j in range(nmax):
             ang = aran[i,j]
