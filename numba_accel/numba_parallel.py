@@ -23,12 +23,12 @@ SH 16-Oct-23
 """
 
 import sys
+from numba import jit, prange
 import time
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-
 #=======================================================================
 def initdat(nmax):
     """
@@ -128,6 +128,7 @@ def savedat(arr,nsteps,Ts,runtime,ratio,energy,order,nmax):
         print("   {:05d}    {:6.4f} {:12.4f}  {:6.4f} ".format(i,ratio[i],energy[i],order[i]),file=FileOut)
     FileOut.close()
 #=======================================================================
+@jit(nopython=True)
 def one_energy(arr,ix,iy,nmax):
     """
     Arguments:
@@ -162,6 +163,7 @@ def one_energy(arr,ix,iy,nmax):
     en += 0.5*(1.0 - 3.0*np.cos(ang)**2)
     return en
 #=======================================================================
+@jit(nopython=True, parallel = True)
 def all_energy(arr,nmax):
     """
     Arguments:
@@ -174,12 +176,13 @@ def all_energy(arr,nmax):
 	  enall (float) = reduced energy of lattice.
     """
     enall = 0.0
-    for i in range(nmax):
+    for i in prange(nmax):
         for j in range(nmax):
             enall += one_energy(arr,i,j,nmax)
     return enall
 #=======================================================================
-def get_order(arr,nmax):
+@jit(nopython=True, parallel = True)
+def get_order(arr: np.ndarray,nmax: int) -> float:
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -198,7 +201,7 @@ def get_order(arr,nmax):
     # put it in a (3,i,j) array.
     #
     lab = np.vstack((np.cos(arr),np.sin(arr),np.zeros_like(arr))).reshape(3,nmax,nmax)
-    for a in range(3):
+    for a in prange(3):
         for b in range(3):
             for i in range(nmax):
                 for j in range(nmax):
@@ -207,7 +210,8 @@ def get_order(arr,nmax):
     eigenvalues,eigenvectors = np.linalg.eig(Qab)
     return eigenvalues.max()
 #=======================================================================
-def MC_step(arr,Ts,nmax):
+@jit(nopython=True)
+def MC_step(arr: np.ndarray,Ts: float,nmax: int) -> float: #A numba ized version of the mc step function. How it impacts model accuracy still needs investigating.
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -232,8 +236,12 @@ def MC_step(arr,Ts,nmax):
     accept = 0
     xran = np.random.randint(0,high=nmax, size=(nmax,nmax))
     yran = np.random.randint(0,high=nmax, size=(nmax,nmax))
-    aran = np.random.normal(scale=scale, size=(nmax,nmax))
-    for i in range(nmax):
+    aran = np.random.randn(nmax, nmax)*scale #Numba does not seem to like np.random.normal (https://numba.pydata.org/numba-doc/dev/reference/numpysupported.html#distributions)
+    boltz_check = np.random.random_sample((nmax, nmax))
+
+
+    for i in range(nmax):#
+        
         for j in range(nmax):
             ix = xran[i,j]
             iy = yran[i,j]
@@ -248,7 +256,7 @@ def MC_step(arr,Ts,nmax):
             # exp( -(E_new - E_old) / T* ) >= rand(0,1)
                 boltz = np.exp( -(en1 - en0) / Ts )
 
-                if boltz >= np.random.uniform(0.0,1.0): #Generate this before!!
+                if boltz >= boltz_check[i,j]:
                     accept += 1
                 else:
                     arr[ix,iy] -= ang
@@ -267,7 +275,6 @@ def main(program, nsteps, nmax, temp, pflag):
     Returns:
       NULL
     """
-    #np.random.seed(21)
     # Create and initialise lattice
     lattice = initdat(nmax)
     # Plot initial frame of lattice
@@ -289,7 +296,6 @@ def main(program, nsteps, nmax, temp, pflag):
         order[it] = get_order(lattice,nmax)
     final = time.time()
     runtime = final-initial
-
     
     # Final outputs
     print("{}: Size: {:d}, Steps: {:d}, T*: {:5.3f}: Order: {:5.3f}, Time: {:8.6f} s".format(program, nmax,nsteps,temp,order[nsteps-1],runtime))
