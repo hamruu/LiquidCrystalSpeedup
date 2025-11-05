@@ -7,6 +7,7 @@ __pycache__/
 
 speedups.xlsx
 
+# Fiveruns was never actually used...
 fiveruns.sh
 
 #Files associated with cython build
@@ -18,3 +19,5 @@ cython_parallel/build/
 
 #Output files
 LL*
+
+*.png
