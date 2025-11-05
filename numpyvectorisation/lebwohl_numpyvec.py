@@ -155,7 +155,7 @@ def all_energy(arr):
     """
     return np.sum(one_energy(arr))
 #==================================================== ===================
-def get_order(arr,nmax): ##POTENTIAL FOR NUMPY VEC##
+def get_order(arr,nmax): ##POTENTIAL FOR NUMPY VEC## Not touched in the end. Potential for future work
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;
@@ -200,9 +200,11 @@ def MC_step_checked(arr,Ts):
     for selected in [0,1]:
         #Creates a boolean array same size as arr, checked with true and false
         mask = (np.indices(arr.shape).sum(axis=0) % 2 == selected)
-        #Creates ang to propose change at sites. Not checked yet
+        #initial energy
         en0 = one_energy(arr)
+        #addition of random changes at checked sites
         trial= arr + aran*mask
+        #proposed energy
         en1 = one_energy(trial)
         en_diff = en1-en0
         boltz = np.exp(-en_diff/Ts)

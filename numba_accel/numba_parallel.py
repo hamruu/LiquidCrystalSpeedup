@@ -211,7 +211,7 @@ def get_order(arr: np.ndarray,nmax: int) -> float:
     return eigenvalues.max()
 #=======================================================================
 @jit(nopython=True)
-def MC_step(arr: np.ndarray,Ts: float,nmax: int) -> float: #A numba ized version of the mc step function. How it impacts model accuracy still needs investigating.
+def MC_step(arr: np.ndarray,Ts: float,nmax: int) -> float: #A numba ized version of the mc step function.
     """
     Arguments:
 	  arr (float(nmax,nmax)) = array that contains lattice data;

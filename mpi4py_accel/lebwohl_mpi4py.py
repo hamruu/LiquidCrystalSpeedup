@@ -132,10 +132,9 @@ def savedat(arr,nsteps,Ts,runtime,ratio,energy,order,nmax):
 def one_energy(arr,ix,iy):
     """
     Arguments:
-	  arr (float(nmax,nmax)) = array that contains lattice data;
+	  arr (float() = array that contains lattice data;
 	  ix (int) = x lattice coordinate of cell;
 	  iy (int) = y lattice coordinate of cell;
-      nmax (int) = side length of square lattice.
     Description:
       Function that computes the energy of a single cell of the
       lattice taking into account periodic boundaries.  Working with
@@ -167,8 +166,7 @@ def one_energy(arr,ix,iy):
 def all_energy(arr):
     """
     Arguments:
-	  arr (float(nmax,nmax)) = array that contains lattice data;
-      nmax (int) = side length of square lattice.
+	  arr (float) = array that contains lattice data;
     Description:
       Function to compute the energy of the entire lattice. Output
       is in reduced units (U/epsilon).
@@ -185,8 +183,7 @@ def all_energy(arr):
 def get_order(arr):
     """
     Arguments:
-	  arr (float(nmax,nmax)) = array that contains lattice data;
-      nmax (int) = side length of square lattice.
+	  arr (float) = array that contains lattice data;
     Description:
       Function to calculate the order parameter of a lattice
       using the Q tensor approach, as in equation (3) of the
@@ -214,9 +211,8 @@ def get_order(arr):
 def MC_step(arr,Ts):
     """
     Arguments:
-	  arr (float(nmax,nmax)) = array that contains lattice data;
+	  arr (float) = array that contains lattice data;
 	  Ts (float) = reduced temperature (range 0 to 2);
-      nmax (int) = side length of square lattice.
     Description:
       Function to perform one MC step, which consists of an average
       of 1 attempted change per lattice site.  Working with reduced
@@ -327,7 +323,6 @@ def main(program, nsteps, nmax, temp, pflag):
     #Now the halo rows need exchanging wtih boundaries.
     up = (rank-1)%size
     down = (rank+1)%size
-    # print(f"up from rank {rank} is rank {up}, and down is rank {down}")
 
     #This Halo step outside the sim loop is necessary to make sure that the first step proceeds smoothly. After that, the loop updates halos in half steps from odd and even ranks
     frombelow = np.empty_like(local_sublattice[1, :])
@@ -359,7 +354,7 @@ def main(program, nsteps, nmax, temp, pflag):
     for it in range(1,nsteps+1):
 
         if rank % 2 == 1:
-            local_ratio[it] = MC_step(local_sublattice,temp)
+            local_ratio[it] = MC_step(local_sublattice,temp) #Odd processors have their sublattice updated
 
         top_row = np.ascontiguousarray(local_sublattice[1, :])
         bottom_row = np.ascontiguousarray(local_sublattice[-2, :])
@@ -368,11 +363,11 @@ def main(program, nsteps, nmax, temp, pflag):
         comm.Sendrecv(sendbuf = bottom_row, dest = down, sendtag = 7,
                recvbuf = fromabove, source = up, recvtag = 7)
         local_sublattice[0, :] = fromabove
-        local_sublattice[-1, :] = frombelow
-        comm.Barrier()
+        local_sublattice[-1, :] = frombelow #Boundaries exchanged^
+        comm.Barrier() 
 
         if rank % 2 == 0:
-            local_ratio[it] = MC_step(local_sublattice, temp)
+            local_ratio[it] = MC_step(local_sublattice, temp) #Now evens
 
         top_row = np.ascontiguousarray(local_sublattice[1, :])
         bottom_row = np.ascontiguousarray(local_sublattice[-2, :])
@@ -382,11 +377,11 @@ def main(program, nsteps, nmax, temp, pflag):
         comm.Sendrecv(sendbuf = bottom_row, dest = down, sendtag = 10,
                 recvbuf = fromabove, source = up, recvtag = 10)
         local_sublattice[0, :] = fromabove
-        local_sublattice[-1, :] = frombelow
+        local_sublattice[-1, :] = frombelow #Boundaries exchanged once more
         comm.Barrier()
 
 
-        local_energy[it] = all_energy(local_sublattice[1:-1, :]) #Slicing to avoid halos inflating energy and order calculations
+        local_energy[it] = all_energy(local_sublattice[1:-1, :]) #Slicing 'real values' to avoid halos inflating energy and order calculations
         local_order[it] = get_order(local_sublattice[1:-1, :])
     final = MPI.Wtime()
     local_runtime = final-initial
